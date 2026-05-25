@@ -247,17 +247,21 @@
                 </div>
             </div>
             <div class="board-outer">
-                <div class="board-row">
-                    <div class="ranks" id="ranksLabels">
-                        <span>8</span><span>7</span><span>6</span><span>5</span>
-                        <span>4</span><span>3</span><span>2</span><span>1</span>
+                <div class="board-aligned">
+                    <div class="board-row">
+                        <div class="ranks" id="ranksLabels">
+                            <span>8</span><span>7</span><span>6</span><span>5</span>
+                            <span>4</span><span>3</span><span>2</span><span>1</span>
+                        </div>
+                        <div class="board-grid-wrap">
+                            <div class="chessboard" id="board" role="grid" aria-label="Chess Board"></div>
+                        </div>
+                        <div id="a11y-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
                     </div>
-                    <div class="chessboard" id="board" role="grid" aria-label="Chess Board"></div>
-                    <div id="a11y-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
-                </div>
-                <div class="files" id="filesLabels">
-                    <span>a</span><span>b</span><span>c</span><span>d</span>
-                    <span>e</span><span>f</span><span>g</span><span>h</span>
+                    <div class="files" id="filesLabels">
+                        <span>a</span><span>b</span><span>c</span><span>d</span>
+                        <span>e</span><span>f</span><span>g</span><span>h</span>
+                    </div>
                 </div>
             </div>
 
@@ -318,19 +322,6 @@
                     <button class="btn btn-gold" style="width: 100%;"
                         onclick="document.getElementById('rulebookModal').style.display='flex'">📖 Rulebook</button>
                 </div>
-<<<<<<< HEAD
-=======
-                <div class="keyboard-hints" style="font-size: 0.8rem; color: #888; margin-top: 8px;">
-                    ⌨️ Shortcuts:
-                    <kbd>F</kbd> Flip &nbsp;
-                    <kbd>R</kbd> Resign &nbsp;
-                    <kbd>D</kbd> Draw &nbsp;
-                    <kbd>P</kbd> Pause &nbsp;
-                    <kbd>N</kbd> New PvP &nbsp;
-                    <kbd>A</kbd> AI Game &nbsp;
-                    <kbd>Esc</kbd> Close Modals
-                </div>
->>>>>>> 7d2b88cd324c3da0e5b3bb746bda11f7f35b5b81
                 <a href="/" class="btn" 
    style="background: #2a1414; color: #ff6b6b;margin-top: 1rem;margin-bottom: 1.5rem; border: 1px solid #632424; text-decoration: none; text-align: center; display: block; line-height: 2.5;">
     EXIT TO HOME
@@ -448,6 +439,10 @@
             <div style="display: flex; flex-direction: column; gap: 12px;">
                 <button type="button" class="btn btn-gold" id="shareResultBtn" style="padding: 12px; font-size: 1rem;">📤 Share Result</button>
                 <button class="btn btn-gold" id="gameOverStartBtn" style="padding: 12px; font-size: 1rem;">Start New Game</button>
+               <a href="{% url 'landing' %}" class="btn" id="gameOverExitBtn"
+   style="padding: 12px; font-size: 1rem; margin-top: 10px; background: #333; color: #fff; cursor: pointer; text-align: center; text-decoration: none; display: block;">
+    Exit to Home
+</a>
             </div>
         </div>
     </div>

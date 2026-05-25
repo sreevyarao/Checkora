@@ -24,9 +24,17 @@
             let hints = [];
             let lastMove = null;
             let premove = null;
+            let highlightedSquare = null;
 
             let dragging = false;
             let dragSrc = null;
+
+            // Touch drag-and-drop state variables
+            let touchStartPos = null;
+            let activeTouchPieceClone = null;
+            let touchDragSrc = null;
+            let touchDragging = false;
+            let touchOffset = { x: 0, y: 0 };
 
             let whiteTime = 0;
             let blackTime = 0;
@@ -179,6 +187,7 @@
             const gameOverTitle = document.getElementById('gameOverTitle');
             const gameOverMessage = document.getElementById('gameOverMessage');
             const gameOverStartBtn = document.getElementById('gameOverStartBtn');
+            const gameOverExitBtn = document.getElementById('gameOverExitBtn');
             const gameOverPvPBtn = document.getElementById('gameOverPvPBtn');
             const gameOverAIBtn = document.getElementById('gameOverAIBtn');
 
@@ -530,6 +539,11 @@
                         d.dataset.r = r;
                         d.dataset.c = c;
                         d.onclick = () => onClick(r, c);
+                        d.oncontextmenu = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleSquareHighlight(r, c);
+                        };
                         d.ondragover = e => e.preventDefault();
                         d.ondrop = e => onDrop(e, r, c);
 
@@ -623,7 +637,7 @@
 
             function refreshHighlights() {
                 boardEl.querySelectorAll('.square').forEach(el => {
-                    el.classList.remove('selected', 'last-move', 'in-check');
+                    el.classList.remove('selected', 'last-move', 'in-check', 'custom-highlight');
                     el.querySelectorAll('.move-dot, .capture-ring').forEach(n => n.remove());
                 });
 
@@ -631,7 +645,10 @@
                     sq(lastMove.from[0], lastMove.from[1]).classList.add('last-move');
                     sq(lastMove.to[0], lastMove.to[1]).classList.add('last-move');
                 }
-
+                if (highlightedSquare) {
+                    sq(highlightedSquare.r, highlightedSquare.c)
+                        .classList.add('custom-highlight');
+                }
                 if (selected) {
                     sq(selected.r, selected.c).classList.add('selected');
                     hints.forEach(h => {
@@ -742,7 +759,23 @@
 
                 refreshHighlights();
             }
+            function toggleSquareHighlight(r, c) {
+                if (highlightedSquare) {
+                    sq(highlightedSquare.r, highlightedSquare.c)
+                        .classList.remove('custom-highlight');
+                }
 
+                if (
+                    highlightedSquare &&
+                    highlightedSquare.r === r &&
+                    highlightedSquare.c === c
+                ) {
+                    highlightedSquare = null;
+                } else {
+                    highlightedSquare = { r, c };
+                    sq(r, c).classList.add('custom-highlight');
+                }
+            }
             function deselect() {
                 selected = null;
                 hints = [];
@@ -1176,19 +1209,31 @@
 
             function updateCaptured(cap) {
                 wCapEl.innerHTML = bCapEl.innerHTML = '';
-                
-                const point_vals = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0 };
-                
-                let whitePoints = cap.white.reduce((sum, p) => sum + (point_vals[p.toLowerCase()] || 0), 0);
-                let blackPoints = cap.black.reduce((sum, p) => sum + (point_vals[p.toLowerCase()] || 0), 0);
-                
-                cap.white.forEach((p) => {
-                    wCapEl.innerHTML += `<img src="${PIECE_IMG[pKey(p)]}" class="captured-img">`;
-                });
-                cap.black.forEach((p) => {
-                    bCapEl.innerHTML += `<img src="${PIECE_IMG[pKey(p)]}" class="captured-img">`;
-                });
-                
+
+                // Use global MATERIAL_VALUES instead of redefining locally (DRY principle)
+                const sortByValue = (pieces) => [...pieces].sort((a, b) =>
+                    (MATERIAL_VALUES[b.toLowerCase()] || 0) - (MATERIAL_VALUES[a.toLowerCase()] || 0)
+                );
+
+                let whitePoints = cap.white.reduce((sum, p) => sum + (MATERIAL_VALUES[p.toLowerCase()] || 0), 0);
+                let blackPoints = cap.black.reduce((sum, p) => sum + (MATERIAL_VALUES[p.toLowerCase()] || 0), 0);
+
+                const pieceNames = { 'p': 'Pawn', 'n': 'Knight', 'b': 'Bishop', 'r': 'Rook', 'q': 'Queen' };
+
+                // Use createElement instead of innerHTML to prevent XSS and avoid DOM reflows
+                const makeImg = (p) => {
+                    const img = document.createElement('img');
+                    img.src = PIECE_IMG[pKey(p)];
+                    img.className = 'captured-img';
+                    const name = pieceNames[p.toLowerCase()] || p;
+                    img.title = name;
+                    img.alt = name;
+                    return img;
+                };
+
+                sortByValue(cap.white).forEach((p) => wCapEl.appendChild(makeImg(p)));
+                sortByValue(cap.black).forEach((p) => bCapEl.appendChild(makeImg(p)));
+
                 const wPointsEl = document.getElementById('whitePoints');
                 const bPointsEl = document.getElementById('blackPoints');
                 if (wPointsEl) wPointsEl.textContent = `+${whitePoints}`;
@@ -2118,6 +2163,10 @@
             if (gameOverStartBtn) gameOverStartBtn.onclick = () => {
                 openWelcomeForNewGame();
             };
+           if (gameOverExitBtn) gameOverExitBtn.addEventListener('click', () => {
+    const confettiContainer = gameOverOverlay.querySelector('.confetti-container');
+    if (confettiContainer) confettiContainer.remove();
+});
 
             // Theme Switcher
             function initThemeSwitcher() {
@@ -2441,5 +2490,132 @@ if (leaveConfirmNo) leaveConfirmNo.addEventListener('click', () => {
                 refreshPremoveHighlight();
                 showStatus("Premove cancelled", false);
             });
+
+            // Mobile Touch Drag-and-Drop Implementation
+            boardEl.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                const squareEl = e.target.closest('.square');
+                if (!squareEl) return;
+
+                const r = parseInt(squareEl.dataset.r);
+                const c = parseInt(squareEl.dataset.c);
+                const piece = board[r][c];
+                if (!piece || paused || gameOver) return;
+
+                // Check if the piece is playable by the current player (including AI premoves)
+                const isPremoveDrag = gameMode === 'ai' && turn !== playerColor && pColor(piece) === playerColor;
+                const isNormalDrag = gameMode === 'ai' ? (turn === playerColor && pColor(piece) === playerColor) : (pColor(piece) === turn);
+
+                if (!isPremoveDrag && !isNormalDrag) return;
+
+                touchStartPos = { x: touch.clientX, y: touch.clientY };
+                touchDragSrc = { r, c };
+                touchDragging = false;
+            }, { passive: true });
+
+            boardEl.addEventListener('touchmove', (e) => {
+                if (!touchDragSrc) return;
+
+                const touch = e.touches[0];
+                
+                if (!touchDragging) {
+                    const dx = touch.clientX - touchStartPos.x;
+                    const dy = touch.clientY - touchStartPos.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance > 8) {
+                        touchDragging = true;
+                        
+                        // Select the piece to show move hints
+                        selectPiece(touchDragSrc.r, touchDragSrc.c);
+
+                        // Find the original piece image
+                        const squareEl = sq(touchDragSrc.r, touchDragSrc.c);
+                        const pieceImg = squareEl ? squareEl.querySelector('.piece') : null;
+                        if (pieceImg) {
+                            // Create premium floating clone
+                            activeTouchPieceClone = pieceImg.cloneNode(true);
+                            activeTouchPieceClone.className = 'piece touch-drag-clone';
+                            
+                            // Measure and style the clone
+                            const rect = pieceImg.getBoundingClientRect();
+                            touchOffset = { x: rect.width / 2, y: rect.height / 2 };
+                            
+                            activeTouchPieceClone.style.position = 'fixed';
+                            activeTouchPieceClone.style.pointerEvents = 'none';
+                            activeTouchPieceClone.style.zIndex = '9999';
+                            activeTouchPieceClone.style.width = rect.width + 'px';
+                            activeTouchPieceClone.style.height = rect.height + 'px';
+                            activeTouchPieceClone.style.transform = 'scale(1.15)';
+                            activeTouchPieceClone.style.filter = 'drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45))';
+                            activeTouchPieceClone.style.transition = 'none';
+                            activeTouchPieceClone.style.willChange = 'left, top';
+                            
+                            document.body.appendChild(activeTouchPieceClone);
+                            
+                            // Make original piece semi-transparent
+                            pieceImg.classList.add('touch-dragging-original');
+                        }
+                    }
+                }
+
+                if (touchDragging && activeTouchPieceClone) {
+                    activeTouchPieceClone.style.left = (touch.clientX - touchOffset.x) + 'px';
+                    activeTouchPieceClone.style.top = (touch.clientY - touchOffset.y) + 'px';
+                    
+                    // Prevent page scrolling while dragging
+                    if (e.cancelable) e.preventDefault();
+                }
+            }, { passive: false });
+
+            boardEl.addEventListener('touchend', (e) => {
+                if (!touchDragSrc) return;
+
+                const touch = e.changedTouches[0];
+                let movedToSquare = false;
+
+                if (touchDragging) {
+                    // Clean up original piece transparency
+                    const srcSquareEl = sq(touchDragSrc.r, touchDragSrc.c);
+                    const pieceImg = srcSquareEl ? srcSquareEl.querySelector('.piece') : null;
+                    if (pieceImg) {
+                        pieceImg.classList.remove('touch-dragging-original');
+                    }
+
+                    // Clean up clone
+                    if (activeTouchPieceClone) {
+                        activeTouchPieceClone.remove();
+                        activeTouchPieceClone = null;
+                    }
+
+                    // Identify target square element under the touch coordinates
+                    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const destSquareEl = targetEl ? targetEl.closest('.square') : null;
+                    if (destSquareEl) {
+                        const tr = parseInt(destSquareEl.dataset.r);
+                        const tc = parseInt(destSquareEl.dataset.c);
+
+                        if (tr !== touchDragSrc.r || tc !== touchDragSrc.c) {
+                            tryMove(touchDragSrc.r, touchDragSrc.c, tr, tc);
+                            movedToSquare = true;
+                        }
+                    }
+
+                    if (!movedToSquare) {
+                        deselect();
+                    }
+
+                    // Prevent click generation
+                    e.preventDefault();
+                } else {
+                    // Quick tap -> trigger default click/tap behavior
+                    onClick(touchDragSrc.r, touchDragSrc.c);
+                }
+
+                // Reset state
+                touchStartPos = null;
+                touchDragSrc = null;
+                touchDragging = false;
+            }, { passive: false });
 
 })();
