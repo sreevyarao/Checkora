@@ -346,6 +346,7 @@
                 for (const pm of premoveQueue) {
                     const piece = virtualBoard[pm.from.r][pm.from.c];
                     if (piece) {
+                        const targetEmpty = !virtualBoard[pm.to.r][pm.to.c];
                         virtualBoard[pm.to.r][pm.to.c] = piece;
                         virtualBoard[pm.from.r][pm.from.c] = null;
 
@@ -362,7 +363,7 @@
                         }
 
                         // Virtual en passant handling
-                        if (piece.toLowerCase() === 'p' && pm.from.c !== pm.to.c && !virtualBoard[pm.to.r][pm.to.c]) {
+                        if (piece.toLowerCase() === 'p' && pm.from.c !== pm.to.c && targetEmpty) {
                             virtualBoard[pm.from.r][pm.to.c] = null;
                         }
 
