@@ -132,27 +132,49 @@
             // =============================================
 
             function getPuzzleStreak() {
-                return JSON.parse(
-                    localStorage.getItem("dailyPuzzleStreak")
-                ) || {
-                    streak: 0,
-                    lastCompleted: null,
-                    longestStreak: 0
-                };
+                try{
+                    return JSON.parse(
+                        localStorage.getItem("dailyPuzzleStreak")
+                    ) || {
+                        streak: 0,
+                        lastCompleted: null,
+                        longestStreak: 0
+                    };
+                }catch (error) {
+                    console.error("Failed to load puzzle streak:", error);
+
+                    return {
+                        streak: 0,
+                        lastCompleted: null,
+                        longestStreak: 0
+                    };
+                }
             }
 
             function savePuzzleStreak(data) {
-                localStorage.setItem(
-                "dailyPuzzleStreak",
-                JSON.stringify(data)
-            );
-        }
+                try{
+                    localStorage.setItem(
+                    "dailyPuzzleStreak",
+                    JSON.stringify(data)
+                );
+                }catch (error) {
+                    console.error("Failed to save puzzle streak:", error);
+                }
+            }
+        
+            function getLocalDateString() {
+                const today = new Date();
 
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, "0");
+                const day = String(today.getDate()).padStart(2, "0");
+
+                return `${year}-${month}-${day}`;
+            }
         function updatePuzzleStreak() {
 
             const today = new Date();
-            const todayStr =
-                today.toISOString().split("T")[0];
+            const todayStr = getLocalDateString();
 
             const streakData = getPuzzleStreak();
 
@@ -164,7 +186,11 @@
                 yesterday.setDate(today.getDate() - 1);
 
             const yesterdayStr =
-                yesterday.toISOString().split("T")[0];
+                `${yesterday.getFullYear()}-${String(
+                yesterday.getMonth() + 1
+                ).padStart(2, "0")}-${String(
+                yesterday.getDate()
+                ).padStart(2, "0")}`;
 
             if (streakData.lastCompleted === yesterdayStr) {
                 streakData.streak++;
