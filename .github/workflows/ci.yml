@@ -351,10 +351,18 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🔧 Install Chrome
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+      - name: 🔧 Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: 📦 Cache static files
+        uses: actions/cache@v4
+        with:
+          path: staticfiles/
+          key: static-${{ runner.os }}-${{ hashFiles('game/static/**', 'templates/**') }}
+          restore-keys: |
+            static-${{ runner.os }}-
 
       - name: 📦 Collect static files
         run: python manage.py collectstatic --noinput
