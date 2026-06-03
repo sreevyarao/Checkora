@@ -215,9 +215,9 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--card-bg);
-    color: var(--text-primary);
-    border: 1px solid var(--card-border);
+    background: #0f172a;
+    color: #f0c040;
+    border: 1px solid #2d3748;
     padding: 8px 14px;
     border-radius: 10px;
     cursor: pointer;
