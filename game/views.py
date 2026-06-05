@@ -35,6 +35,7 @@ from django.core.mail import (
 from django.template.loader import render_to_string
 from django.contrib import messages
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from .forms import CustomUserCreationForm
 from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt
@@ -482,7 +483,7 @@ def ai_move(request):
             record_game_result(request, game.mode, winner, 'checkmate', game.player_color, moves=game.move_history)
         elif game_status in ('stalemate', 'draw'):
             record_game_result(request, game.mode, 'draw', game.draw_reason or 'stalemate', game.player_color, moves=game.move_history)
-    
+
     return JsonResponse({
         'valid': success,
         'message': message,
@@ -578,125 +579,215 @@ def resign_game(request):
 
 @require_GET
 def check_username(request):
-    """Check if a username is already taken."""
+    """Check if a username is already taken.
+
+    Checks both active and inactive users to avoid leaking
+    whether a pending-verification account exists.
+    """
     username = request.GET.get('username', '').strip()
     if not username:
         return JsonResponse({'available': False, 'error': 'No username provided'}, status=400)
-    exists = User.objects.filter(
-        username__iexact=username,
-        is_active=True
-    ).exists()
+    exists = User.objects.filter(username__iexact=username).exists()
     return JsonResponse({'available': not exists})
 
 
 def register_view(request):
+    """Handle new user registration with OTP email verification."""
     if request.user.is_authenticated:
         return redirect('index')
 
     if request.method == 'POST':
         form = CustomUserCreationForm(request.POST)
-        is_valid = form.is_valid()
+        if form.is_valid():
+            username = form.cleaned_data['username']
+            email = form.cleaned_data['email']
 
-        # Ghost Account Cleanup: Only run if form is perfectly valid except for username/email conflicts
-        if not is_valid and set(form.errors.keys()).issubset({'username', 'email'}):
-            username = request.POST.get('username')
-            email = request.POST.get('email')
-
-            if username and email:
-                deleted = False
-                # 1. Exact match (User retrying with the exact same details)
-                if User.objects.filter(username=username, email=email, is_active=False).exists():
-                    User.objects.filter(username=username, email=email, is_active=False).delete()
-                    deleted = True
-                else:
-                    # 2. Username conflict (Free up unverified, abandoned usernames)
-                    if User.objects.filter(username=username, is_active=False).exists():
-                        User.objects.filter(username=username, is_active=False).delete()
-                        deleted = True
-                    # 3. Email conflict (Free up unverified, abandoned emails)
-                    if User.objects.filter(email=email, is_active=False).exists():
-                        User.objects.filter(email=email, is_active=False).delete()
-                        deleted = True
-
-                if deleted:
-                    # Re-validate the form now that conflicts are cleared
-                    form = CustomUserCreationForm(request.POST)
-                    is_valid = form.is_valid()
-
-        if is_valid:
-            user = form.save(commit=False)
-            user.is_active = False  # Deactivate account till OTP is verified
-            user.save()
-
-            # Generate 6-digit OTP
-            otp = str(secrets.randbelow(900000) + 100000)
-            request.session['registration_user_id'] = user.id
-            # Hash OTP with SECRET_KEY as salt to prevent reading from signed cookies
-            otp_hash = hashlib.sha256(f"{otp}:{settings.SECRET_KEY}".encode()).hexdigest()
-            request.session['registration_otp_hash'] = otp_hash
-            request.session['otp_created_at'] = time.time()
-
-            missing_email_credentials = (
-                not settings.EMAIL_HOST_USER or
-                not settings.EMAIL_HOST_PASSWORD
-            )
-
-            if settings.DEBUG and missing_email_credentials:
-                print(f"[Checkora] Development registration OTP for {user.email}: {otp}")
+            # Concurrency: serialize registration requests for the same email
+            # using a lightweight, synchronized cache lock.
+            email_lock_key = f"reg_lock_email_{hashlib.sha256(email.lower().strip().encode()).hexdigest()}"
+            lock_acquired = cache.add(email_lock_key, "locked", timeout=10)
+            if not lock_acquired:
+                # Concurrent request in progress — return the same generic redirect.
+                request.session['registration_user_id'] = -1
+                request.session['registration_email'] = email
+                dummy_otp = str(secrets.randbelow(900000) + 100000)
+                dummy_otp_hash = hashlib.sha256(
+                    f"{dummy_otp}:{settings.SECRET_KEY}".encode()
+                ).hexdigest()
+                request.session['registration_otp_hash'] = dummy_otp_hash
+                request.session['otp_created_at'] = time.time()
+                messages.success(
+                    request,
+                    'If your details are valid, a verification '
+                    'code has been sent to your email.',
+                )
                 return redirect('verify_otp')
 
-            # Send Email
+            is_new_user = False
             try:
-                msg_plain = (
-                    f'Your OTP for registration is: {otp}\n\n'
-                    'Please enter this code to activate your account.'
+                # Security: detect conflicts with existing accounts inside
+                # an atomic block to eliminate race conditions between the
+                # check and the subsequent insert.
+                with transaction.atomic():
+                    active_conflict = User.objects.filter(
+                        Q(username__iexact=username) | Q(email__iexact=email),
+                        is_active=True,
+                    ).select_for_update().exists()
+
+                    if active_conflict:
+                        # Return the same generic response as a successful
+                        # registration so attackers cannot distinguish
+                        # between "email/username exists" and "new account".
+                        request.session['registration_user_id'] = -1
+                        request.session['registration_email'] = email
+                        dummy_otp = str(secrets.randbelow(900000) + 100000)
+                        dummy_otp_hash = hashlib.sha256(
+                            f"{dummy_otp}:{settings.SECRET_KEY}".encode()
+                        ).hexdigest()
+                        request.session['registration_otp_hash'] = dummy_otp_hash
+                        request.session['otp_created_at'] = time.time()
+                        messages.success(
+                            request,
+                            'If your details are valid, a verification '
+                            'code has been sent to your email.',
+                        )
+                        return redirect('verify_otp')
+
+                    # Re-verification: if an inactive account already owns
+                    # this username or email, reuse it instead of creating
+                    # a duplicate.  This preserves the original account.
+                    inactive_user = User.objects.filter(
+                        Q(username__iexact=username) | Q(email__iexact=email),
+                        is_active=False,
+                    ).select_for_update().first()
+
+                    if inactive_user:
+                        user = inactive_user
+                        # Update password to the one the user just supplied
+                        user.set_password(form.cleaned_data['password1'])
+                        user.username = username
+                        user.email = email
+                        user.full_clean(validate_unique=False)
+                        user.save()
+                    else:
+                        try:
+                            user = form.save(commit=False)
+                            user.is_active = False
+                            user.full_clean(validate_unique=False)
+                            user.save()
+                            is_new_user = True
+                        except IntegrityError:
+                            # Concurrent insert beat us despite the atomic
+                            # block — return the same generic message.
+                            request.session['registration_user_id'] = -1
+                            request.session['registration_email'] = email
+                            dummy_otp = str(secrets.randbelow(900000) + 100000)
+                            dummy_otp_hash = hashlib.sha256(
+                                f"{dummy_otp}:{settings.SECRET_KEY}".encode()
+                            ).hexdigest()
+                            request.session['registration_otp_hash'] = dummy_otp_hash
+                            request.session['otp_created_at'] = time.time()
+                            messages.success(
+                                request,
+                                'If your details are valid, a verification '
+                                'code has been sent to your email.',
+                            )
+                            return redirect('verify_otp')
+
+                # Generate 6-digit OTP
+                otp = str(secrets.randbelow(900000) + 100000)
+                request.session['registration_user_id'] = user.id
+                # Hash OTP with SECRET_KEY as salt to prevent reading from signed cookies
+                otp_hash = hashlib.sha256(
+                    f"{otp}:{settings.SECRET_KEY}".encode()
+                ).hexdigest()
+                request.session['registration_otp_hash'] = otp_hash
+                request.session['otp_created_at'] = time.time()
+
+                missing_email_credentials = (
+                    not settings.EMAIL_HOST_USER or
+                    not settings.EMAIL_HOST_PASSWORD
                 )
-                html_message = (
-                    "<div style=\"font-family: 'Segoe UI', Arial, sans-serif; "
-                    "background-color: #0f0f1a; color: #d0d0d0; padding: 40px "
-                    "20px; text-align: center;\"><div style=\"background-"
-                    "color: #16162a; border: 1px solid #252545; border-radius"
-                    ": 12px; padding: 40px 30px; max-width: 450px; margin: 0 "
-                    "auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5);\">"
-                    "<h1 style=\"color: #ffffff; margin-top: 0; margin-bottom"
-                    ": 15px; font-size: 28px; letter-spacing: 2px;\">CHECK"
-                    "<span style=\"color: #f0c040;\">ORA</span></h1>"
-                    "<hr style=\"border: none; border-top: 1px solid #252545; "
-                    "margin: 20px 0;\"><p style=\"color: #e0e0e0; font-size: "
-                    "16px; line-height: 1.5; margin-bottom: 30px;\">Welcome "
-                    "to the elite chess platform. To activate your account "
-                    "and start playing, please use the verification code "
-                    "below:</p><div style=\"margin: 35px 0;\"><span style=\""
-                    "font-family: 'Consolas', monospace; font-size: 36px; "
-                    "font-weight: bold; color: #f0c040; letter-spacing: 8px; "
-                    "background: #0f0f1a; padding: 15px 25px; border-radius: "
-                    "8px; border: 1px solid #3d3222; display: inline-block;"
-                    "\">{otp}</span></div><p style=\"color: #8a8aaa; font-"
-                    "size: 14px; margin-top: 30px;\">Enter this code on the "
-                    "verification page to complete your registration.</p>"
-                    "<p style=\"color: #5a5a7a; font-size: 12px; margin-top: "
-                    "40px;\">If you didn't attempt to register on Checkora, "
-                    "please safely ignore this email.</p></div></div>"
-                ).format(otp=otp)
-                send_mail(
-                    'Your Checkora Verification Code',
-                    msg_plain,
-                    None,  # Will use EMAIL_HOST_USER
-                    [user.email],
-                    fail_silently=False,
-                    html_message=html_message
-                )
-                return redirect('verify_otp')
-            except (SMTPException, BadHeaderError, OSError):
-                # If email fails, delete the user so they can try again
-                user.delete()
-                request.session.pop('registration_user_id', None)
-                request.session.pop('registration_otp_hash', None)
-                err_msg = (
-                    'Failed to send OTP email. '
-                    'Please check your email address and try again.'
-                )
-                messages.error(request, err_msg)
+
+                if settings.DEBUG and missing_email_credentials:
+                    print(
+                        f"[Checkora] Development registration OTP "
+                        f"for {user.email}: {otp}"
+                    )
+                    messages.success(
+                        request,
+                        'If your details are valid, a verification '
+                        'code has been sent to your email.',
+                    )
+                    return redirect('verify_otp')
+
+                # Send Email
+                try:
+                    msg_plain = (
+                        f'Your OTP for registration is: {otp}\n\n'
+                        'Please enter this code to activate your account.'
+                    )
+                    html_message = (
+                        "<div style=\"font-family: 'Segoe UI', Arial, "
+                        "sans-serif; background-color: #0f0f1a; color: "
+                        "#d0d0d0; padding: 40px 20px; text-align: center;"
+                        "\"><div style=\"background-color: #16162a; border"
+                        ": 1px solid #252545; border-radius: 12px; padding"
+                        ": 40px 30px; max-width: 450px; margin: 0 auto; "
+                        "box-shadow: 0 10px 30px rgba(0,0,0,0.5);\">"
+                        "<h1 style=\"color: #ffffff; margin-top: 0; "
+                        "margin-bottom: 15px; font-size: 28px; "
+                        "letter-spacing: 2px;\">CHECK<span style=\"color: "
+                        "#f0c040;\">ORA</span></h1><hr style=\"border: "
+                        "none; border-top: 1px solid #252545; margin: "
+                        "20px 0;\"><p style=\"color: #e0e0e0; font-size: "
+                        "16px; line-height: 1.5; margin-bottom: 30px;\">"
+                        "Welcome to the elite chess platform. To activate "
+                        "your account and start playing, please use the "
+                        "verification code below:</p><div style=\"margin: "
+                        "35px 0;\"><span style=\"font-family: 'Consolas', "
+                        "monospace; font-size: 36px; font-weight: bold; "
+                        "color: #f0c040; letter-spacing: 8px; background: "
+                        "#0f0f1a; padding: 15px 25px; border-radius: 8px; "
+                        "border: 1px solid #3d3222; display: inline-block;"
+                        "\">{otp}</span></div><p style=\"color: #8a8aaa; "
+                        "font-size: 14px; margin-top: 30px;\">Enter this "
+                        "code on the verification page to complete your "
+                        "registration.</p><p style=\"color: #5a5a7a; "
+                        "font-size: 12px; margin-top: 40px;\">If you "
+                        "didn't attempt to register on Checkora, please "
+                        "safely ignore this email.</p></div></div>"
+                    ).format(otp=otp)
+                    send_mail(
+                        'Your Checkora Verification Code',
+                        msg_plain,
+                        None,  # Will use EMAIL_HOST_USER
+                        [user.email],
+                        fail_silently=False,
+                        html_message=html_message
+                    )
+                    messages.success(
+                        request,
+                        'If your details are valid, a verification '
+                        'code has been sent to your email.',
+                    )
+                    return redirect('verify_otp')
+                except (SMTPException, BadHeaderError, OSError):
+                    # If email fails, delete the user only if it was newly created.
+                    # This preserves existing inactive accounts for re-verification.
+                    if is_new_user:
+                        user.delete()
+                    request.session.pop('registration_user_id', None)
+                    request.session.pop('registration_otp_hash', None)
+                    request.session.pop('registration_email', None)
+                    request.session.pop('otp_created_at', None)
+                    err_msg = (
+                        'Failed to send OTP email. '
+                        'Please check your email address and try again.'
+                    )
+                    messages.error(request, err_msg)
+            finally:
+                cache.delete(email_lock_key)
     else:
         form = CustomUserCreationForm()
 
@@ -719,11 +810,8 @@ def verify_otp(request):
 
         if otp_created_at:
             if time.time() - otp_created_at > 300:
-                try:
-                    user = User.objects.get(id=user_id, is_active=False)
-                    user.delete()
-                except User.DoesNotExist:
-                    pass
+                # Security: preserve the inactive account so the
+                # user can re-register without losing their username.
                 messages.error(
                     request,
                     'OTP has expired. Please register again.',
@@ -731,6 +819,7 @@ def verify_otp(request):
                 request.session.pop('registration_otp_hash', None)
                 request.session.pop('otp_created_at', None)
                 request.session.pop('registration_user_id', None)
+                request.session.pop('registration_email', None)
 
                 return redirect('register')
 
@@ -745,6 +834,8 @@ def verify_otp(request):
             stored_otp_hash
         ):
             try:
+                if user_id == -1:
+                    raise User.DoesNotExist()
                 user = User.objects.get(id=user_id)
                 user.is_active = True
                 user.full_clean()
@@ -752,8 +843,10 @@ def verify_otp(request):
                 del request.session['registration_user_id']
                 del request.session['registration_otp_hash']
                 request.session.pop('otp_created_at', None)
+                request.session.pop('registration_email', None)
 
                 try:
+                    from django.template import TemplateDoesNotExist, TemplateSyntaxError
                     html_content = render_to_string(
                         'game/welcome_email.html',
                         {
@@ -770,6 +863,8 @@ def verify_otp(request):
                     email.attach_alternative(html_content, "text/html")
                     email.send(fail_silently=True)
 
+                except (TemplateDoesNotExist, TemplateSyntaxError):
+                    logger.exception("Failed to render welcome email template.")
                 except Exception as e:
                     logger.warning("Failed to send welcome email: %s", e)
 
@@ -786,6 +881,10 @@ def verify_otp(request):
                     request,
                     'User not found. Please register again.'
                 )
+                request.session.pop('registration_otp_hash', None)
+                request.session.pop('otp_created_at', None)
+                request.session.pop('registration_user_id', None)
+                request.session.pop('registration_email', None)
                 return redirect('register')
 
         else:
@@ -798,21 +897,24 @@ def verify_otp(request):
         elapsed = int(time.time() - last_otp_time)
         remaining_time = max(0, 60 - elapsed)
 
-    try:
-        user = User.objects.get(id=user_id)
-        email = user.email
+    email = None
+    if user_id == -1:
+        email = request.session.get('registration_email')
+    else:
+        try:
+            user = User.objects.get(id=user_id)
+            email = user.email
+        except User.DoesNotExist:
+            email = None
 
-        if email and '@' in email:
-            name, domain = email.split('@', 1)
-            if len(name) <= 2:
-                masked_name = name[:1]
-            else:
-                masked_name = name[:2] + '*' * (len(name) - 2)
-            user_email = f"{masked_name}@{domain}"
+    if email and '@' in email:
+        name, domain = email.split('@', 1)
+        if len(name) <= 2:
+            masked_name = name[:1]
         else:
-            user_email = None
-
-    except User.DoesNotExist:
+            masked_name = name[:2] + '*' * (len(name) - 2)
+        user_email = f"{masked_name}@{domain}"
+    else:
         user_email = None
 
     return render(
@@ -830,6 +932,23 @@ def resend_otp(request):
     if not user_id:
         messages.error(request, 'Session expired. Please register again.')
         return redirect('register')
+
+    if user_id == -1:
+        last_otp_time = request.session.get('last_otp_time')
+        if last_otp_time and time.time() - last_otp_time < 60:
+            remaining = int(60 - (time.time() - last_otp_time))
+            messages.error(request, f'Please wait {remaining} seconds before requesting a new OTP.')
+            return redirect('verify_otp')
+
+        otp = str(secrets.randbelow(900000) + 100000)
+        otp_hash = hashlib.sha256(
+            f"{otp}:{settings.SECRET_KEY}".encode()
+        ).hexdigest()
+        request.session['registration_otp_hash'] = otp_hash
+        request.session['otp_created_at'] = time.time()
+        request.session['last_otp_time'] = time.time()
+        messages.success(request, 'A new OTP has been sent to your email.')
+        return redirect('verify_otp')
 
     try:
         user = User.objects.get(id=user_id, is_active=False)
@@ -863,6 +982,7 @@ def resend_otp(request):
             request,
             'A new OTP has been sent to your email.'
         )
+        request.session['otp_created_at'] = time.time()
         request.session['last_otp_time'] = time.time()
 
     except (SMTPException, BadHeaderError, OSError):
@@ -1374,7 +1494,7 @@ def lessons_view(request):
 
     return render(
         request,
-        "lessons.html",
+        "game/lessons.html",
         {
             "lessons": lessons,
             "completed_lessons": completed_lessons,
@@ -1447,8 +1567,38 @@ def lesson_detail_view(request, lesson_name):
                         "h8"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the knight from g1 to f3.",
+                    "expected_move": "g1-f3"
+                },
+                {
+                    "instruction": "Move the bishop from f1 to c4.",
+                    "expected_move": "f1-c4"
+                },
+                {
+                    "instruction": "Move the rook from a1 to a4.",
+                    "expected_move": "a1-a4"
+                },
+                {
+                    "instruction": "Move the queen from d1 to h5.",
+                    "expected_move": "d1-h5"
+                },
+                {
+                    "instruction": "Move the king from e1 to e2.",
+                    "expected_move": "e1-e2"
+                }
+            ],
+            "practice_position": {
+                "g1": "N",
+                "f1": "B",
+                "a1": "R",
+                "d1": "Q",
+                "e1": "K"
+            },
         },
+
 
         "Check and Checkmate": {
             "title": "Check and Checkmate",
@@ -1488,7 +1638,20 @@ def lesson_detail_view(request, lesson_name):
                     },
                     "highlight": ["g7"]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the queen from h5 to f7 and deliver checkmate.",
+                    "expected_move": "h5-f7"
+                }
+            ],
+
+            "practice_position": {
+                "h5": "Q",
+                "e8": "K",
+                "c4": "B",
+                "f7": "P"
+            },
         },
 
         "Castling": {
@@ -1523,7 +1686,19 @@ def lesson_detail_view(request, lesson_name):
                         "g1"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Castle kingside by moving the king from e1 to g1.",
+                    "expected_move": "e1-g1"
+                }
+            ],
+
+            "practice_position": {
+                "e1": "K",
+                "h1": "R",
+                "a1": "R"
+            }
         },
 
         "Opening Principles": {
@@ -1569,7 +1744,30 @@ def lesson_detail_view(request, lesson_name):
                         "f3"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Control the center by playing e4.",
+                    "expected_move": "e2-e4"
+                },
+                {
+                    "instruction": "Develop the knight from g1 to f3.",
+                    "expected_move": "g1-f3"
+                },
+                {
+                    "instruction": "Develop the bishop from f1 to c4.",
+                    "expected_move": "f1-c4"
+                }
+            ],
+
+            "practice_position": {
+                "e1": "K",
+                "d1": "Q",
+                "f1": "B",
+                "g1": "N",
+                "e2": "P",
+                "d2": "P"
+            },
         },
 
         "Forks": {
@@ -1610,7 +1808,18 @@ def lesson_detail_view(request, lesson_name):
                         "g8"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the knight from e5 to c6 and fork the king and queen.",
+                    "expected_move": "e5-c6"
+                }
+            ],
+            "practice_position": {
+                "e5": "N",
+                "d8": "Q",
+                "e8": "K"
+            }
         },
 
         "Pins": {
@@ -1646,7 +1855,18 @@ def lesson_detail_view(request, lesson_name):
                         "e8"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the bishop from b5 to pin the knight to the king.",
+                    "expected_move": "f1-b5"
+                }
+            ],
+            "practice_position": {
+                "f1": "B",
+                "c6": "N",
+                "e8": "K"
+            }
         },
 
         "Skewers": {
@@ -1682,7 +1902,18 @@ def lesson_detail_view(request, lesson_name):
                         "e7"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the queen from a4 to create a skewer.",
+                    "expected_move": "a4-e8"
+                }
+            ],
+            "practice_position": {
+                "a4": "Q",
+                "e8": "K",
+                "d7": "R"
+            }
         },
 
         "Discovered Attacks": {
@@ -1718,7 +1949,18 @@ def lesson_detail_view(request, lesson_name):
                         "a8"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Move the knight from e2 to c3 to reveal the rook attack.",
+                    "expected_move": "e2-c3"
+                }
+            ],
+            "practice_position": {
+                "a1": "R",
+                "e2": "N",
+                "a8": "Q"
+            }
         },
 
         "Pawn Structures": {
@@ -1764,7 +2006,18 @@ def lesson_detail_view(request, lesson_name):
                         "d4"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Advance the passed pawn from d5 to d6.",
+                    "expected_move": "d5-d6"
+                }
+            ],
+
+            "practice_position": {
+                "d5": "P",
+                "e1": "K"
+            },
         },
 
         "King Safety": {
@@ -1802,7 +2055,17 @@ def lesson_detail_view(request, lesson_name):
                         "h2"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Castle kingside.",
+                    "expected_move": "e1-g1"
+                }
+            ],
+            "practice_position": {
+                "e1": "K",
+                "h1": "R"
+            }
         },
 
         "Piece Activity": {
@@ -1842,7 +2105,18 @@ def lesson_detail_view(request, lesson_name):
                         "f6"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Activate the rook by moving from a1 to a7.",
+                    "expected_move": "a1-a7"
+                }
+            ],
+
+            "practice_position": {
+                "a1": "R",
+                "e1": "K"
+            },
         },
 
         "Basic Endgames": {
@@ -1890,15 +2164,26 @@ def lesson_detail_view(request, lesson_name):
                         "e6"
                     ]
                 }
-            ]
+            ],
+            "lesson_steps": [
+                {
+                    "instruction": "Promote the pawn by moving from e7 to e8.",
+                    "expected_move": "e7-e8"
+                }
+            ],
+            "practice_position": {
+                "e7": "P",
+                "e1": "K",
+                "e8": ""
+            }
         }
     }
 
     lesson = lesson_data.get(lesson_name)
-    
+
     if lesson is None:
         raise Http404("Lesson not found")
-    
+
     lesson_order = list(lesson_data.keys())
 
     current_index = lesson_order.index(lesson_name)
@@ -1956,6 +2241,7 @@ def lesson_detail_view(request, lesson_name):
         }
     )
 
+
 @login_required
 @require_POST
 def complete_lesson(request, lesson_name):
@@ -1973,3 +2259,4 @@ def complete_lesson(request, lesson_name):
         "lesson_detail",
         lesson_name=lesson_name
     )
+ 
