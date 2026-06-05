@@ -2039,7 +2039,7 @@ body.blindfold-mode .capture-ring {
                 0 0 40px rgba(240, 192, 64, 0.08);
     animation: premium-modal-scale-up 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
     overflow-y: auto;
-    box-sizing: content-box;
+    box-sizing: border-box;
 }
 
 /* Two-column wrapper */

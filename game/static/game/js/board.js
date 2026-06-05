@@ -878,9 +878,14 @@
 
                 function createAnim(p, dRow, dCol) {
                     return new Promise(resolve => {
-                        p.style.transition = 'transform 0.25s ease-in-out, opacity 0.2s ease';
-                        p.style.transform = `translate(${dCol * size * mult}px, ${dRow * size * mult}px)`;
-                        p.classList.add('moving');
+                       const ghost = p.cloneNode(true);
+                       ghost.className = 'piece-ghost';
+                       ghost.style.width = p.offsetWidth + 'px';
+                       ghost.style.height = p.offsetHeight + 'px';
+                       p.parentElement.appendChild(ghost);
+                       setTimeout(() => ghost.remove(), 300);
+
+                       p.style.transition = 'transform 0.25s ease-in-out, opacity 0.2s ease';
 
                         const onEnd = () => {
                             p.removeEventListener('transitionend', onEnd);
