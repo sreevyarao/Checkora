@@ -1607,11 +1607,7 @@ def get_unlocked_lessons(completed_lessons):
     unlocked = set()
 
     for level_index, level in enumerate(LESSON_LEVELS):
-        lessons = level["lessons"]
-
-        if level_index == 0:
-            unlocked.add(lessons[0])
-
+        
         previous_level_complete = True
 
         if level_index > 0:
@@ -1672,7 +1668,6 @@ def lessons_view(request):
         for level in LESSON_LEVELS
     )
     
-    completed_count = len(completed_lessons)
     unlocked_lessons = get_unlocked_lessons(
         completed_lessons
     )
