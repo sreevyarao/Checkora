@@ -157,6 +157,8 @@
       <div class="ambient-glow glow-gold"></div>
       <div class="ambient-glow glow-blue"></div>
 
+      <div id="chess-board-bg"></div>
+
       <div class="hero-inner-wrapper">
         <div class="architecture-badge">
           <span class="live-pulse"></span>
@@ -178,6 +180,54 @@
           <a href="#about" class="btn-secondary-ghost">Learn More</a>
         </div>
       </div>
+
+      <script>
+        const board = document.getElementById('chess-board-bg');
+        const pieces = ['♛','♚','♞','♝','♜','♟'];
+        const darkSquares = [];
+
+        for(let r=0;r<8;r++){
+          for(let c=0;c<8;c++){
+            const sq = document.createElement('div');
+            sq.className = (r+c)%2===1 ? 'csq dark' : 'csq light';
+            sq.dataset.r = r; sq.dataset.c = c;
+            board.appendChild(sq);
+            if((r+c)%2===1) darkSquares.push({el:sq,r,c});
+          }
+        }
+
+        function isBehindText(r,c){ return r>=2&&r<=5&&c>=2&&c<=5; }
+
+        function triggerPiece(zone){
+          let pool;
+          if(zone==='right') pool = darkSquares.filter(s=>s.c>=5&&!s.el.dataset.busy);
+          else if(zone==='left') pool = darkSquares.filter(s=>s.c<=2&&!s.el.dataset.busy);
+          else pool = darkSquares.filter(s=>!s.el.dataset.busy);
+          if(!pool.length) return;
+          const chosen = pool[Math.floor(Math.random()*pool.length)];
+          const sq = chosen.el;
+          const behind = isBehindText(chosen.r, chosen.c);
+          sq.dataset.busy='1';
+          const dur = 2000+Math.random()*900;
+          const glow = document.createElement('div');
+          glow.className = behind ? 'sq-glow dim' : 'sq-glow bright';
+          glow.style.animationDuration = dur+'ms';
+          sq.appendChild(glow);
+          const icon = document.createElement('div');
+          icon.textContent = pieces[Math.floor(Math.random()*pieces.length)];
+          icon.className = behind ? 'sq-piece dim' : 'sq-piece bright';
+          icon.style.animationDuration = dur+'ms';
+          sq.appendChild(icon);
+          setTimeout(()=>{
+            glow.remove(); icon.remove(); delete sq.dataset.busy;
+          }, dur+50);
+        }
+
+        setInterval(()=>triggerPiece('right'), 700);
+        setInterval(()=>triggerPiece('left'), 900);
+        setInterval(()=>triggerPiece(null), 420);
+        setInterval(()=>triggerPiece(null), 650);
+      </script>
     </main>
 
     <section id="about" class="about">
