@@ -8,8 +8,12 @@ OPENINGS_JSON_PATH = os.path.join(BASE_DIR, 'openings.json')
 try:
     with open(OPENINGS_JSON_PATH, 'r', encoding='utf-8') as f:
         OPENINGS = json.load(f)
-except Exception:
+except FileNotFoundError:
     OPENINGS = {}
+    # TODO: replace with project logger
+    print(f"warning: opening book not found at {OPENINGS_JSON_PATH}")
+except json.JSONDecodeError as exc:
+    raise RuntimeError(f"invalid openings.json: {exc}") from exc
 
 def detect_opening(moves: list[str]) -> str | None:
     """
