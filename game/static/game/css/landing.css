@@ -79,7 +79,7 @@ body {
     align-items: center;
     padding: 1.5rem 5%;
     background-color: var(--nav-bg);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -248,7 +248,7 @@ body {
     gap: 8px;
     background: var(--card-bg);
     color: #f0c040;
-    border: 1px solid #333;
+    border: 1px solid var(--card-border);
     padding: 12px 18px;
     border-radius: 12px;
     cursor: pointer;
@@ -305,7 +305,7 @@ body {
     display: block;
     width: 100%;
     padding: 14px 18px;
-    color: white;
+    color: var(--text-primary);
     text-decoration: none;
     background: transparent;
     border: none;
@@ -436,7 +436,7 @@ body {
   bottom: 0;
   left: 0;
    background: 
-    linear-gradient(to bottom, rgba(15,15,26,1) 0%, transparent 15%, transparent 85%, rgba(15,15,26,1) 100%);
+    linear-gradient(to bottom, var(--bg-primary) 0%, transparent 15%, transparent 85%, var(--bg-primary) 100%);
   pointer-events: none;
   z-index: 1;
 }
@@ -585,7 +585,7 @@ body {
     text-decoration: none;
     background-color: transparent;
     color: var(--text-primary);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--border-color);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -593,7 +593,7 @@ body {
 }
 
 .btn-secondary-ghost:hover {
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: var(--card-hover);
     border-color: var(--accent-gold);
     color: var(--text-title);
     transform: translateY(-2px);
@@ -802,7 +802,7 @@ body {
 .about-card-title {
     font-size: clamp(1.6rem, 2.5vw, 2.4rem);
     font-weight: 800;
-    color: #fff;
+    color: var(--text-title);
     line-height: 1.15;
     margin-bottom: 1.5rem;
     white-space: normal;
@@ -830,7 +830,7 @@ body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.15);
+    background: var(--border-color);
     transition: all 0.3s ease;
     cursor: pointer;
 }
@@ -1014,9 +1014,9 @@ body {
     font-size: 0.88rem;
     font-weight: 600;
     text-decoration: none;
-    background: rgba(255,255,255,0.05);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
     transition: all 0.25s ease;
 }
 
@@ -1117,8 +1117,8 @@ body {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 999px;
     padding: 0.3rem 0.8rem;
     font-size: 0.75rem;
@@ -1148,7 +1148,7 @@ body {
 }
 
 .perf-chip-val {
-    color: #fff;
+    color: var(--text-title);
     font-weight: 700;
 }
 
@@ -1513,8 +1513,8 @@ body {
 }
 
 .bento-card {
-    background: rgba(22, 22, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 24px;
     padding: 1.5rem;
     position: relative;
@@ -1568,7 +1568,7 @@ body {
 .bento-title {
     font-size: 1.25rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-title);
     margin: 0;
 }
 
@@ -1586,7 +1586,7 @@ body {
     justify-content: center;
     background: rgba(10, 10, 20, 0.5);
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.03);
+    border: 1px solid var(--border-color);
     margin-bottom: 1.5rem;
     position: relative;
     overflow: hidden;
@@ -1609,7 +1609,7 @@ body {
 }
 
 .quiz-preview-question {
-    color: #fff;
+    color: var(--text-title);
     font-size: 0.9rem;
     font-weight: 600;
     line-height: 1.45;
@@ -1624,8 +1624,8 @@ body {
 }
 
 .qpo {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 7px;
     padding: 0.45rem 0.85rem;
     color: var(--text-secondary);
@@ -1649,7 +1649,7 @@ body {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.15);
+    background: var(--border-color);
     display: inline-block;
 }
 
@@ -1753,9 +1753,9 @@ body {
     gap: 0.5rem;
 }
 .t-btn {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: var(--text-primary);
     width: 36px; height: 36px;
     border-radius: 50%;
     cursor: pointer;
@@ -1782,7 +1782,7 @@ body {
     width: 100%;
     padding: 0.5rem 1rem;
     border-radius: 8px;
-    background: rgba(255,255,255,0.03);
+    background: var(--card-bg);
 }
 .mat-pieces {
     font-size: 1.5rem;
@@ -1970,7 +1970,7 @@ body {
     font-size: 0.95rem;
     font-weight: 600;
     margin: 6px 0;
-    color: #fff;
+    color: var(--text-title);
 }
 .lm-progress-bg {
     height: 4px;
@@ -2034,8 +2034,8 @@ body {
 }
 
 .faq-item {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 12px;
     overflow: hidden;
     transition: border-color 0.3s ease, background-color 0.3s ease;
@@ -2061,7 +2061,7 @@ body {
     font-family: Inter, sans-serif;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #ffffff;
+    color: var(--text-title);
     transition: color 0.3s ease;
 }
 
@@ -2271,6 +2271,113 @@ body {
 
 [data-theme="light"] .faq-answer-content {
     color: #374151;
+}
+
+[data-theme="light"] .navbar {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .bento-visual {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .about-card-visual {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .mode-switch-container {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .m-option {
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .m-avatar {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .ai-hud {
+    color: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] .ai-node {
+    background: #374151;
+    box-shadow: 0 0 10px #374151;
+}
+
+[data-theme="light"] .ai-edge {
+    stroke: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .cg-sq.light { background: rgba(0,0,0,0.06); }
+[data-theme="light"] .cg-sq.dark  { background: rgba(0,0,0,0.18); }
+[data-theme="light"] .cg-piece { color: #111827; }
+
+[data-theme="light"] .chess-grid-mini {
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .lesson-mockup {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .lm-progress-bg {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .about-box {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(212, 160, 23, 0.25);
+}
+
+[data-theme="light"] .about-progress-bar {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .footer {
+    border-color: rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .footer-bottom {
+    border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .footer-link {
+    color: #4b5563;
+}
+
+[data-theme="light"] .footer-copy {
+    color: #6b7280;
+}
+
+[data-theme="light"] .footer-socials a {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #4b5563;
+}
+
+[data-theme="light"] .dropdown-content {
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .dropdown-content a:hover,
+[data-theme="light"] .logout-option:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] #backToTopTooltip {
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--accent-gold);
+    border-color: rgba(212, 160, 23, 0.3);
+}
 
 .modal-scroll-content {
     scrollbar-width: thin;
@@ -2302,5 +2409,4 @@ body {
         #ffd54f,
         var(--accent-gold)
     );
-}
 }
